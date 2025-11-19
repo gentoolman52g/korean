@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Form
 from fastapi.responses import JSONResponse
-from hanspell import spell_checker
+from py_hanspell_aideer import spell_checker
 
 app = FastAPI(title="Korean Spellcheck Server (hanspell)")
 
