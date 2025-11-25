@@ -346,9 +346,9 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <div className="grid lg:grid-cols-2 gap-6">
+        <div className="grid lg:grid-cols-2 gap-6 items-stretch">
           {/* 입력 영역 */}
-          <Card>
+          <Card className="flex flex-col h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
@@ -358,15 +358,15 @@ export default function Home() {
                 추출된 텍스트가 여기에 표시됩니다. 수정 후 전처리를 시작하세요
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 flex flex-col space-y-4">
               <Textarea
                 placeholder="추출된 텍스트가 여기에 표시됩니다..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                className="min-h-[400px] font-mono text-sm"
+                className="flex-1 min-h-[400px] font-mono text-sm resize-none"
               />
-              <div className="space-y-3">
-                <div className="space-y-2">
+              <div className="mt-auto space-y-3">
+                <div className="min-h-[60px] flex flex-col justify-end space-y-2">
                   <Label>문서 종류</Label>
                   <RadioGroup
                     value={docType}
@@ -436,16 +436,16 @@ export default function Home() {
                 </Button>
               </div>
               </div>
-              {inputText && (
-                <div className="text-sm text-muted-foreground">
-                  입력 길이: {inputText.length.toLocaleString()}자
-                </div>
-              )}
+              <div className="h-5 text-sm text-muted-foreground flex items-center">
+                {inputText && (
+                  <>입력 길이: {inputText.length.toLocaleString()}자</>
+                )}
+              </div>
             </CardContent>
           </Card>
 
           {/* 결과 영역 */}
-          <Card>
+          <Card className="flex flex-col h-full">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -468,35 +468,42 @@ export default function Home() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="flex-1 flex flex-col space-y-4">
               <Textarea
                 placeholder="전처리된 결과가 여기에 표시됩니다..."
                 value={processedText}
                 onChange={(e) => setProcessedText(e.target.value)}
-                className="min-h-[400px] font-mono text-sm"
+                className="flex-1 min-h-[400px] font-mono text-sm resize-none"
                 disabled={!processedText}
               />
-              <Button 
-                onClick={handleDownload} 
-                disabled={!processedText}
-                className="w-full"
-              >
-                <Download className="mr-2 h-4 w-4" />
-                TXT 파일 다운로드
-              </Button>
-              {stats && (
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">
-                    원본: {stats.originalLength.toLocaleString()}자
-                  </Badge>
-                  <Badge variant="secondary">
-                    처리 후: {stats.processedLength.toLocaleString()}자
-                  </Badge>
-                  <Badge variant="secondary">
-                    청크: {stats.chunkCount}개
-                  </Badge>
+              <div className="mt-auto space-y-3">
+                <div className="min-h-[60px] flex items-end pb-1">
+                {stats ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">
+                      원본: {stats.originalLength.toLocaleString()}자
+                    </Badge>
+                    <Badge variant="secondary">
+                      처리 후: {stats.processedLength.toLocaleString()}자
+                    </Badge>
+                    <Badge variant="secondary">
+                      청크: {stats.chunkCount}개
+                    </Badge>
+                  </div>
+                ) : (
+                  <div aria-hidden="true" />
+                )}
                 </div>
-              )}
+                <Button 
+                  onClick={handleDownload} 
+                  disabled={!processedText}
+                  className="w-full"
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  TXT 파일 다운로드
+                </Button>
+              </div>
+              <div className="h-5" aria-hidden="true" />
             </CardContent>
           </Card>
         </div>
