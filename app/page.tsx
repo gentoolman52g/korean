@@ -27,28 +27,32 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from '@/components/ui/radio-group';
+import * as XLSX from 'xlsx';
 
-type DocType = 'law' | 'policy' | 'company' | 'other';
+  type DocType = 'law' | 'excel' | 'research_paper' | 'other';
+
+import { ChunkViewerModal } from '@/components/chunk-viewer-modal';
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [isCallingMiso, setIsCallingMiso] = useState(false);
 
+  const [rawMisoText, setRawMisoText] = useState('');
   const [inputText, setInputText] = useState('');
   const [processedText, setProcessedText] = useState('');
+  const [processedChunks, setProcessedChunks] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isChunkModalOpen, setIsChunkModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<{
     originalLength: number;
     processedLength: number;
     chunkCount: number;
   } | null>(null);
-  const [spellcheckInfo, setSpellcheckInfo] = useState<{
-    segmentCount: number;
-    segments: string[];
-  } | null>(null);
   const [docType, setDocType] = useState<DocType>('law');
+  // 파일 입력 컴포넌트 강제 초기화를 위한 키
+  const [inputKey, setInputKey] = useState(Date.now());
 
   // 미소 스펙 및 Node.js 런타임 업로드 한도에 맞춘 최대 업로드 크기 (50MB)
   const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -64,6 +68,81 @@ export default function Home() {
       return;
     }
 
+    // 1. 텍스트 파일은 로컬에서 바로 읽기 (Miso API 호출 안함)
+    const textExtensions = ['txt', 'md', 'markdown', 'json', 'csv', 'log', 'xml', 'yml', 'yaml'];
+    const excelExtensions = ['xlsx', 'xls', 'ods'];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+    // 1-1. 텍스트 파일 처리
+    if (fileExtension && textExtensions.includes(fileExtension)) {
+      console.log('[Local] Reading text file directly:', file.name);
+      
+      // 로딩 상태 잠깐 표시 (UX)
+      setIsCallingMiso(true);
+      setError(null);
+
+      try {
+        // Blob.text() 메서드로 텍스트 추출
+        const text = await file.text();
+        
+        setRawMisoText(text);
+        setInputText(text);
+        // 확장자가 csv나 json이면 'excel'이나 'other'로 자동 설정할 수도 있음
+        if (fileExtension === 'csv') setDocType('excel');
+        else if (fileExtension === 'json') setDocType('other');
+        
+        console.log('[Local] File read complete. Length:', text.length);
+      } catch (err) {
+        console.error('[Local] File read error:', err);
+        setError('로컬 파일 읽기 중 오류가 발생했습니다.');
+      } finally {
+        setIsCallingMiso(false);
+      }
+      return; // Miso API 호출 건너뜀
+    }
+
+    // 1-2. 엑셀 파일 처리
+    if (fileExtension && excelExtensions.includes(fileExtension)) {
+      console.log('[Local] Parsing Excel file locally:', file.name);
+      setIsCallingMiso(true);
+      setError(null);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer);
+        
+        let fullText = '';
+        
+        // 모든 시트 순회
+        workbook.SheetNames.forEach((sheetName) => {
+          const sheet = workbook.Sheets[sheetName];
+          // CSV 형태로 변환 (가독성 좋음)
+          const csvText = XLSX.utils.sheet_to_csv(sheet);
+          
+          if (csvText.trim()) {
+            fullText += `[Sheet: ${sheetName}]\n${csvText}\n\n`;
+          }
+        });
+
+        if (!fullText.trim()) {
+          throw new Error('엑셀 파일에서 텍스트를 추출할 수 없습니다 (빈 파일일 수 있음).');
+        }
+
+        setRawMisoText(fullText);
+        setInputText(fullText);
+        setDocType('excel'); // 문서 종류를 엑셀로 자동 설정
+
+        console.log('[Local] Excel parse complete. Length:', fullText.length);
+      } catch (err) {
+        console.error('[Local] Excel parse error:', err);
+        setError('엑셀 파일 파싱 중 오류가 발생했습니다: ' + (err instanceof Error ? err.message : String(err)));
+      } finally {
+        setIsCallingMiso(false);
+      }
+      return; // Miso API 호출 건너뜀
+    }
+
+    // 2. 그 외(PDF, 이미지 등)는 Miso API로 처리
     setIsCallingMiso(true);
     setError(null);
 
@@ -108,42 +187,9 @@ export default function Home() {
       console.log('[v0] Step 2 complete: Workflow executed successfully');
 
       const rawText: string = workflowResult.data.result;
+      setRawMisoText(rawText);
+      setInputText(rawText);
 
-      // 3단계: 맞춤법 검사용 세그먼트 분할 및 API 호출 (파이프라인 테스트용)
-      try {
-        const spellResponse = await fetch('/api/spellcheck', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            text: rawText,
-            maxLength: 500,
-          }),
-        });
-
-        const spellResult = await spellResponse.json();
-
-        if (spellResponse.ok && spellResult?.data?.correctedText) {
-          setInputText(spellResult.data.correctedText);
-          if (
-            typeof spellResult.data.segmentCount === 'number' &&
-            Array.isArray(spellResult.data.segments)
-          ) {
-            setSpellcheckInfo({
-              segmentCount: spellResult.data.segmentCount,
-              segments: spellResult.data.segments as string[],
-            });
-          }
-        } else {
-          // 맞춤법 API 호출 실패 시 원문 사용
-          setInputText(rawText);
-        }
-      } catch (spellError) {
-        console.error('[v0] Spellcheck error:', spellError);
-        // 맞춤법 단계 에러는 치명적이지 않으므로 원문 사용
-        setInputText(rawText);
-      }
       setError(null);
     } catch (err) {
       console.error('[v0] MISO process error:', err);
@@ -181,7 +227,12 @@ export default function Home() {
       }
 
       setProcessedText(result.data.processedText);
+      setProcessedChunks(result.data.chunks || []);
       setStats(result.data.stats);
+      
+      console.log('[Page] Preprocessing complete:');
+      console.log('  - Chunks received:', result.data.chunks?.length || 0);
+      console.log('  - Stats:', result.data.stats);
     } catch (err) {
       setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
       console.error('[v0] Processing error:', err);
@@ -197,7 +248,16 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `preprocessed_data_${new Date().getTime()}.txt`;
+    
+    // 파일명 결정 로직
+    let fileName = `preprocessed_data_${new Date().getTime()}.txt`;
+    if (file) {
+      // 확장자 제거 후 [전처리] 접두사 추가
+      const originalName = file.name.replace(/\.[^/.]+$/, "");
+      fileName = `[전처리] ${originalName}.txt`;
+    }
+
+    link.download = fileName;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -206,11 +266,14 @@ export default function Home() {
 
   const handleReset = () => {
     setFile(null);
+    setRawMisoText('');
     setInputText('');
     setProcessedText('');
     setStats(null);
-    setSpellcheckInfo(null);
     setError(null);
+    setProcessedChunks([]);
+    // 파일 입력 필드 초기화를 위해 키 변경
+    setInputKey(Date.now());
   };
 
   return (
@@ -219,7 +282,7 @@ export default function Home() {
         <div className="mb-8 text-center">
           <h1 className="text-4xl font-bold mb-2 text-balance">RAG 텍스트 전처리 시스템</h1>
           <p className="text-muted-foreground text-lg text-balance">
-            미소 API를 통해 파일을 처리하고 RAG 시스템에 최적화된 형태로 전처리합니다
+            파일을 처리하고 RAG 시스템에 최적화된 형태로 전처리합니다
           </p>
         </div>
 
@@ -234,19 +297,20 @@ export default function Home() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Upload className="h-5 w-5" />
-              미소 API 파일 업로드
+              파일 업로드
             </CardTitle>
             <CardDescription>
-              문서 또는 이미지 파일을 업로드하면 미소 API가 처리하여 텍스트로 변환합니다
+              문서 또는 이미지 파일을 업로드하면 텍스트로 변환합니다
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="file">파일 선택</Label>
               <Input
+                key={inputKey}
                 id="file"
                 type="file"
-                accept=".txt,.md,.pdf,.html,.xlsx,.xls,.docx,.csv,.pptx,.ppt,.jpg,.jpeg,.png,.gif,.webp,.svg"
+                accept=".txt,.md,.markdown,.json,.csv,.log,.xml,.yml,.yaml,.pdf,.html,.xlsx,.xls,.docx,.pptx,.ppt,.jpg,.jpeg,.png,.gif,.webp,.svg"
                 onChange={(e) => {
                   const selectedFile = e.target.files?.[0];
                   if (selectedFile) {
@@ -270,48 +334,17 @@ export default function Home() {
               {isCallingMiso ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  미소 API 처리 중...
+                  파일 처리 중...
                 </>
               ) : (
                 <>
                   <Zap className="mr-2 h-4 w-4" />
-                  미소로 파일 처리하기
+                  파일 처리하기
                 </>
               )}
             </Button>
           </CardContent>
         </Card>
-
-        {spellcheckInfo && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5" />
-                맞춤법 세그먼트 테스트 대시보드
-              </CardTitle>
-              <CardDescription>
-                현재 텍스트가 500자 이내 세그먼트로 어떻게 분할되었는지 확인합니다
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">
-                세그먼트 개수: {spellcheckInfo.segmentCount.toLocaleString()}개
-              </div>
-              <div className="max-h-64 overflow-auto border rounded-md p-3 bg-muted/40">
-                {spellcheckInfo.segments.map((segment, index) => (
-                  <div key={index} className="mb-3 last:mb-0">
-                    <div className="text-xs text-muted-foreground font-mono mb-1">
-                      [세그먼트 {index + 1}] ({segment.length}자)
-                    </div>
-                    <pre className="whitespace-pre-wrap break-words text-xs font-mono">
-                      {segment}
-                    </pre>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         <div className="grid lg:grid-cols-2 gap-6">
           {/* 입력 영역 */}
@@ -322,12 +355,12 @@ export default function Home() {
                 전처리 전 텍스트
               </CardTitle>
               <CardDescription>
-                미소 API 결과가 여기에 표시됩니다. 수정 후 전처리를 시작하세요
+                추출된 텍스트가 여기에 표시됩니다. 수정 후 전처리를 시작하세요
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <Textarea
-                placeholder="미소 API로 처리된 텍스트가 여기에 표시됩니다..."
+                placeholder="추출된 텍스트가 여기에 표시됩니다..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 className="min-h-[400px] font-mono text-sm"
@@ -348,25 +381,25 @@ export default function Home() {
                         value="law"
                       />
                       <Label htmlFor="doc-law">
-                        법령
+                        법령 및 사규
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem
-                        id="doc-policy"
-                        value="policy"
+                        id="doc-excel"
+                        value="excel"
                       />
-                      <Label htmlFor="doc-policy">
-                        사규/내부 규정
+                      <Label htmlFor="doc-excel">
+                        엑셀 파일
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem
-                        id="doc-company"
-                        value="company"
+                        id="doc-research-paper"
+                        value="research_paper"
                       />
-                      <Label htmlFor="doc-company">
-                        일반 회사 자료
+                      <Label htmlFor="doc-research-paper">
+                        논문/보고서
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -414,13 +447,26 @@ export default function Home() {
           {/* 결과 영역 */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                전처리 후 텍스트
-              </CardTitle>
-              <CardDescription>
-                결과를 검토하고 필요시 수정한 후 다운로드하세요
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    전처리 후 텍스트
+                  </CardTitle>
+                  <CardDescription className="mt-1.5">
+                    결과를 검토하고 필요시 수정한 후 다운로드하세요
+                  </CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setIsChunkModalOpen(true)}
+                  disabled={!processedChunks.length}
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  청크별 보기
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <Textarea
@@ -455,30 +501,11 @@ export default function Home() {
           </Card>
         </div>
 
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>지원 파일 형식</CardTitle>
-            <CardDescription>
-              미소 API가 처리할 수 있는 파일 형식
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <h4 className="font-semibold mb-2">문서 (Document)</h4>
-                <p className="text-muted-foreground">
-                  TXT, MD, PDF, HTML, XLSX, XLS, DOCX, CSV, PPTX, PPT, XML, EPUB
-                </p>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-2">이미지 (Image)</h4>
-                <p className="text-muted-foreground">
-                  JPG, JPEG, PNG, GIF, WEBP, SVG
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <ChunkViewerModal 
+          isOpen={isChunkModalOpen}
+          onClose={() => setIsChunkModalOpen(false)}
+          chunks={processedChunks}
+        />
       </div>
     </main>
   );

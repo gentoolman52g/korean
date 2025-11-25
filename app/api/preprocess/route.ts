@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     }
     
     const effectiveDocType: DocType =
-      docType && ['law', 'policy', 'company', 'other'].includes(docType)
+      docType && ['law', 'excel', 'research_paper', 'other'].includes(docType)
         ? docType
         : 'other';
     
