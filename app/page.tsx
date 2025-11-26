@@ -27,218 +27,42 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from '@/components/ui/radio-group';
-import * as XLSX from 'xlsx';
 
   type DocType = 'law' | 'excel' | 'research_paper' | 'other';
 
 import { ChunkViewerModal } from '@/components/chunk-viewer-modal';
+import { ChunkFlowViewer } from '@/components/chunk-flow-viewer';
+import { Switch } from '@/components/ui/switch';
+
+import { useFileProcessor } from '@/hooks/useFileProcessor';
 
 export default function Home() {
-  const [file, setFile] = useState<File | null>(null);
-  const [apiKey, setApiKey] = useState('');
-  const [isCallingMiso, setIsCallingMiso] = useState(false);
+  const {
+    file,
+    inputText,
+    processedText,
+    processedChunks,
+    docType,
+    stats,
+    error,
+    status,
+    // Actions
+    setFile,
+    setInputText,
+    setDocType,
+    setProcessedText,
+    reset,
+    handleFileRead,
+    processText,
+  } = useFileProcessor();
 
-  const [rawMisoText, setRawMisoText] = useState('');
-  const [inputText, setInputText] = useState('');
-  const [processedText, setProcessedText] = useState('');
-  const [processedChunks, setProcessedChunks] = useState<string[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isChunkModalOpen, setIsChunkModalOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<{
-    originalLength: number;
-    processedLength: number;
-    chunkCount: number;
-  } | null>(null);
-  const [docType, setDocType] = useState<DocType>('law');
-  // 파일 입력 컴포넌트 강제 초기화를 위한 키
   const [inputKey, setInputKey] = useState(Date.now());
+  const [isChunkModalOpen, setIsChunkModalOpen] = useState(false);
+  const [showChunkFlow, setShowChunkFlow] = useState(false);
 
-  // 미소 스펙 및 Node.js 런타임 업로드 한도에 맞춘 최대 업로드 크기 (50MB)
-  const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
-
-  const handleMisoProcess = async () => {
-    if (!file) {
-      setError('파일을 선택해주세요.');
-      return;
-    }
-
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      setError('파일 용량이 50MB를 초과했습니다. 50MB 이하 파일만 업로드할 수 있습니다.');
-      return;
-    }
-
-    // 1. 텍스트 파일은 로컬에서 바로 읽기 (Miso API 호출 안함)
-    const textExtensions = ['txt', 'md', 'markdown', 'json', 'csv', 'log', 'xml', 'yml', 'yaml'];
-    const excelExtensions = ['xlsx', 'xls', 'ods'];
-    const fileExtension = file.name.split('.').pop()?.toLowerCase();
-
-    // 1-1. 텍스트 파일 처리
-    if (fileExtension && textExtensions.includes(fileExtension)) {
-      console.log('[Local] Reading text file directly:', file.name);
-      
-      // 로딩 상태 잠깐 표시 (UX)
-      setIsCallingMiso(true);
-      setError(null);
-
-      try {
-        // Blob.text() 메서드로 텍스트 추출
-        const text = await file.text();
-        
-        setRawMisoText(text);
-        setInputText(text);
-        // 확장자가 csv나 json이면 'excel'이나 'other'로 자동 설정할 수도 있음
-        if (fileExtension === 'csv') setDocType('excel');
-        else if (fileExtension === 'json') setDocType('other');
-        
-        console.log('[Local] File read complete. Length:', text.length);
-      } catch (err) {
-        console.error('[Local] File read error:', err);
-        setError('로컬 파일 읽기 중 오류가 발생했습니다.');
-      } finally {
-        setIsCallingMiso(false);
-      }
-      return; // Miso API 호출 건너뜀
-    }
-
-    // 1-2. 엑셀 파일 처리
-    if (fileExtension && excelExtensions.includes(fileExtension)) {
-      console.log('[Local] Parsing Excel file locally:', file.name);
-      setIsCallingMiso(true);
-      setError(null);
-
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer);
-        
-        let fullText = '';
-        
-        // 모든 시트 순회
-        workbook.SheetNames.forEach((sheetName) => {
-          const sheet = workbook.Sheets[sheetName];
-          // CSV 형태로 변환 (가독성 좋음)
-          const csvText = XLSX.utils.sheet_to_csv(sheet);
-          
-          if (csvText.trim()) {
-            fullText += `[Sheet: ${sheetName}]\n${csvText}\n\n`;
-          }
-        });
-
-        if (!fullText.trim()) {
-          throw new Error('엑셀 파일에서 텍스트를 추출할 수 없습니다 (빈 파일일 수 있음).');
-        }
-
-        setRawMisoText(fullText);
-        setInputText(fullText);
-        setDocType('excel'); // 문서 종류를 엑셀로 자동 설정
-
-        console.log('[Local] Excel parse complete. Length:', fullText.length);
-      } catch (err) {
-        console.error('[Local] Excel parse error:', err);
-        setError('엑셀 파일 파싱 중 오류가 발생했습니다: ' + (err instanceof Error ? err.message : String(err)));
-      } finally {
-        setIsCallingMiso(false);
-      }
-      return; // Miso API 호출 건너뜀
-    }
-
-    // 2. 그 외(PDF, 이미지 등)는 Miso API로 처리
-    setIsCallingMiso(true);
-    setError(null);
-
-    try {
-      // 1단계: 파일 업로드
-      console.log('[v0] Step 1: Uploading file to MISO');
-      const uploadFormData = new FormData();
-      uploadFormData.append('file', file);
-
-      const uploadResponse = await fetch('/api/miso/upload', {
-        method: 'POST',
-        body: uploadFormData,
-      });
-
-      const uploadResult = await uploadResponse.json();
-
-      if (!uploadResponse.ok) {
-        throw new Error(uploadResult.error || '파일 업로드 중 오류가 발생했습니다.');
-      }
-
-      console.log('[v0] Step 1 complete: File uploaded with ID', uploadResult.fileId);
-
-      // 2단계: 워크플로우 실행
-      console.log('[v0] Step 2: Running MISO workflow');
-      const workflowResponse = await fetch('/api/miso', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          fileId: uploadResult.fileId,
-          fileName: uploadResult.fileName 
-        }),
-      });
-
-      const workflowResult = await workflowResponse.json();
-
-      if (!workflowResponse.ok) {
-        throw new Error(workflowResult.error || '미소 API 호출 중 오류가 발생했습니다.');
-      }
-
-      console.log('[v0] Step 2 complete: Workflow executed successfully');
-
-      const rawText: string = workflowResult.data.result;
-      setRawMisoText(rawText);
-      setInputText(rawText);
-
-      setError(null);
-    } catch (err) {
-      console.error('[v0] MISO process error:', err);
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
-    } finally {
-      setIsCallingMiso(false);
-    }
-  };
-
-  const handleProcess = async () => {
-    if (!inputText.trim()) {
-      setError('처리할 텍스트를 입력해주세요.');
-      return;
-    }
-
-    setIsProcessing(true);
-    setError(null);
-
-    try {
-      const response = await fetch('/api/preprocess', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: inputText,
-          docType,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || '전처리 중 오류가 발생했습니다.');
-      }
-
-      setProcessedText(result.data.processedText);
-      setProcessedChunks(result.data.chunks || []);
-      setStats(result.data.stats);
-      
-      console.log('[Page] Preprocessing complete:');
-      console.log('  - Chunks received:', result.data.chunks?.length || 0);
-      console.log('  - Stats:', result.data.stats);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.');
-      console.error('[v0] Processing error:', err);
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleReset = () => {
+    reset();
+    setInputKey(Date.now());
   };
 
   const handleDownload = () => {
@@ -249,10 +73,8 @@ export default function Home() {
     const link = document.createElement('a');
     link.href = url;
     
-    // 파일명 결정 로직
     let fileName = `preprocessed_data_${new Date().getTime()}.txt`;
     if (file) {
-      // 확장자 제거 후 [전처리] 접두사 추가
       const originalName = file.name.replace(/\.[^/.]+$/, "");
       fileName = `[전처리] ${originalName}.txt`;
     }
@@ -264,17 +86,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const handleReset = () => {
-    setFile(null);
-    setRawMisoText('');
-    setInputText('');
-    setProcessedText('');
-    setStats(null);
-    setError(null);
-    setProcessedChunks([]);
-    // 파일 입력 필드 초기화를 위해 키 변경
-    setInputKey(Date.now());
-  };
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-background to-muted/20 py-8 px-4">
@@ -327,11 +138,11 @@ export default function Home() {
             </div>
 
             <Button 
-              onClick={handleMisoProcess} 
-              disabled={isCallingMiso || !file}
+              onClick={() => file && handleFileRead(file)} 
+              disabled={status === 'reading' || status === 'uploading' || !file}
               className="w-full"
             >
-              {isCallingMiso ? (
+              {status === 'reading' || status === 'uploading' ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   파일 처리 중...
@@ -415,11 +226,11 @@ export default function Home() {
                 </div>
                 <div className="flex gap-2">
                 <Button 
-                  onClick={handleProcess} 
-                  disabled={isProcessing || !inputText.trim()}
+                  onClick={processText} 
+                  disabled={status === 'processing' || !inputText.trim()}
                   className="flex-1"
                 >
-                  {isProcessing ? (
+                  {status === 'processing' ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       처리 중...
@@ -457,26 +268,45 @@ export default function Home() {
                     결과를 검토하고 필요시 수정한 후 다운로드하세요
                   </CardDescription>
                 </div>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => setIsChunkModalOpen(true)}
-                  disabled={!processedChunks.length}
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  청크별 보기
-                </Button>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Switch 
+                      id="chunk-flow-mode"
+                      checked={showChunkFlow}
+                      onCheckedChange={setShowChunkFlow}
+                      disabled={!processedChunks.length}
+                    />
+                    <Label htmlFor="chunk-flow-mode" className="text-sm cursor-pointer whitespace-nowrap">
+                      시각화
+                    </Label>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setIsChunkModalOpen(true)}
+                    disabled={!processedChunks.length}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    청크별 보기
+                  </Button>
+                </div>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 flex flex-col space-y-4">
-              <Textarea
-                placeholder="전처리된 결과가 여기에 표시됩니다..."
-                value={processedText}
-                onChange={(e) => setProcessedText(e.target.value)}
-                className="flex-1 min-h-[400px] font-mono text-sm resize-none"
-                disabled={!processedText}
-              />
-              <div className="mt-auto space-y-3">
+            <CardContent className="flex-1 flex flex-col space-y-4 min-h-0 overflow-hidden">
+              {showChunkFlow ? (
+                <div className="flex-1 min-h-[400px] overflow-hidden">
+                  <ChunkFlowViewer chunks={processedChunks} />
+                </div>
+              ) : (
+                <Textarea
+                  placeholder="전처리된 결과가 여기에 표시됩니다..."
+                  value={processedText}
+                  onChange={(e) => setProcessedText(e.target.value)}
+                  className="flex-1 min-h-[400px] font-mono text-sm resize-none"
+                  disabled={!processedText}
+                />
+              )}
+              <div className="mt-auto space-y-3 shrink-0">
                 <div className="min-h-[60px] flex items-end pb-1">
                 {stats ? (
                   <div className="flex flex-wrap gap-2">
@@ -503,7 +333,7 @@ export default function Home() {
                   TXT 파일 다운로드
                 </Button>
               </div>
-              <div className="h-5" aria-hidden="true" />
+              <div className="h-1" aria-hidden="true" />
             </CardContent>
           </Card>
         </div>

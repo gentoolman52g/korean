@@ -351,67 +351,6 @@ function chunkLawStructure(text: string, maxChunkSize: number = 4000): string[] 
   return finalChunks;
 }
 
-/**
- * 맞춤법 검사용: 텍스트를 최대 maxLength 글자 이내 세그먼트로 분할
- * - 줄바꿈 단위를 최대한 유지하면서 500자 이하 블록으로 쌓음
- * - 한 줄이 너무 길면 maxLength 기준으로 잘라서 추가
- */
-export function splitTextIntoSegments(
-  text: string,
-  maxLength: number = 500,
-): string[] {
-  const segments: string[] = [];
-  let current = '';
-
-  const pushCurrent = () => {
-    if (current.trim().length > 0) {
-      segments.push(current);
-    }
-    current = '';
-  };
-
-  const lines = text.split('\n');
-
-  for (const line of lines) {
-    // 현재 세그먼트에 이 줄을 그대로 넣었을 때 길이 계산
-    const lineToAdd = current ? `\n${line}` : line;
-
-    // 한 줄 자체가 너무 긴 경우: 줄 내부에서 잘라서 세그먼트 생성
-    if (lineToAdd.length > maxLength) {
-      // 먼저 현재 세그먼트가 비어있지 않으면 밀어넣기
-      if (current) {
-        pushCurrent();
-      }
-
-      let start = 0;
-      const trimmedLine = line;
-      while (start < trimmedLine.length) {
-        const chunk = trimmedLine.slice(start, start + maxLength);
-        segments.push(chunk);
-        start += maxLength;
-      }
-      current = '';
-      continue;
-    }
-
-    // 현재 세그먼트에 이 줄까지 넣으면 maxLength를 넘는 경우
-    if ((current + lineToAdd).length > maxLength) {
-      // 지금까지 쌓인 세그먼트를 확정하고 새 세그먼트 시작
-      pushCurrent();
-      current = line;
-    } else {
-      // 그대로 현재 세그먼트에 추가
-      current = current ? `${current}\n${line}` : line;
-    }
-  }
-
-  // 마지막 세그먼트 추가
-  if (current.trim().length > 0) {
-    segments.push(current);
-  }
-
-  return segments;
-}
 
 /**
  * 공통 전처리 파이프라인 (청킹 전 단계까지)

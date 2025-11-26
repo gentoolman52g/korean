@@ -1,4 +1,0 @@
-fastapi
-uvicorn[standard]
-py-hanspell-aideer
-python-multipart
