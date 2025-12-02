@@ -594,8 +594,8 @@ export function preprocessByDocType(
     case 'other':
     default: {
       const { originalLength, processed } = basePreprocess(text);
-      // 개선된 재귀적 청킹 + 오버랩 사용
-      const chunks = chunkTextOptimized(processed);
+      // 마크다운 표를 인식하여 깨지지 않도록 청킹
+      const chunks = chunkMarkdownWithTables(processed);
       const processedText = chunks.join('\n\n@@@\n\n');
 
       return {
@@ -611,3 +611,158 @@ export function preprocessByDocType(
   }
 }
 
+/**
+ * 마크다운 표를 인식하여 청킹 (표가 잘리지 않도록 처리)
+ */
+function chunkMarkdownWithTables(
+  text: string, 
+  maxChunkSize: number = 4000,
+  overlapSize: number = 200
+): string[] {
+  // 1. 텍스트를 줄 단위로 분리하여 블록(텍스트/표)으로 그룹화
+  const lines = text.split('\n');
+  const blocks: { type: 'text' | 'table'; content: string[] }[] = [];
+  
+  // 표 라인 감지 정규식 (파이프로 시작하고 파이프로 끝나는 형태, 혹은 파이프 포함)
+  // 단순화: 라인 내에 |가 있고, 문맥상 표의 일부처럼 보이는 경우
+  const isTableLine = (line: string) => /^\s*\|.*\|\s*$/.test(line);
+
+  let currentBlock: { type: 'text' | 'table'; content: string[] } | null = null;
+
+  for (const line of lines) {
+    if (isTableLine(line)) {
+      if (currentBlock && currentBlock.type === 'table') {
+        currentBlock.content.push(line);
+      } else {
+        // 새 표 블록 시작
+        // 이전 텍스트 블록 종료 (자동 처리됨)
+        blocks.push({ type: 'table', content: [line] });
+        currentBlock = blocks[blocks.length - 1];
+      }
+    } else {
+      if (currentBlock && currentBlock.type === 'text') {
+        currentBlock.content.push(line);
+      } else {
+        // 새 텍스트 블록 시작
+        blocks.push({ type: 'text', content: [line] });
+        currentBlock = blocks[blocks.length - 1];
+      }
+    }
+  }
+
+  // 2. 블록별 청킹 처리
+  const chunks: string[] = [];
+  let currentChunk = '';
+
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      const textContent = block.content.join('\n').trim();
+      if (!textContent) continue;
+
+      // 텍스트 블록은 기존 최적화 청킹 로직 사용
+      const textChunks = chunkTextOptimized(textContent, maxChunkSize, overlapSize);
+      
+      for (const chunk of textChunks) {
+        if (currentChunk) {
+          if (currentChunk.length + chunk.length + 2 <= maxChunkSize) {
+            currentChunk += '\n\n' + chunk;
+          } else {
+            chunks.push(currentChunk);
+            currentChunk = chunk;
+          }
+        } else {
+          currentChunk = chunk;
+        }
+      }
+
+    } else {
+      // 표 블록 처리
+      // 표가 유효한지 확인 (최소 2줄: 헤더 + 구분선)
+      if (block.content.length < 2) {
+        // 표가 아니거나 너무 짧으면 텍스트로 취급
+        const textContent = block.content.join('\n');
+        if (currentChunk.length + textContent.length + 2 <= maxChunkSize) {
+          currentChunk += (currentChunk ? '\n\n' : '') + textContent;
+        } else {
+          if (currentChunk) chunks.push(currentChunk);
+          currentChunk = textContent;
+        }
+        continue;
+      }
+
+      // 헤더와 구분선 식별
+      const header = block.content[0];
+      const separator = block.content[1];
+      
+      // 구분선이 | --- | 형태인지 확인 (간단한 체크)
+      const isRealTable = separator.includes('---') || (separator.match(/\|/g) || []).length > 1;
+
+      if (!isRealTable) {
+        // 표 형식이 아니면 일반 텍스트로 처리
+        const textContent = block.content.join('\n');
+        // 일반 텍스트 청킹 로직 적용 (크기가 클 수 있으므로)
+        const textChunks = chunkTextOptimized(textContent, maxChunkSize, overlapSize);
+        for (const chunk of textChunks) {
+           if (currentChunk.length + chunk.length + 2 <= maxChunkSize) {
+              currentChunk += (currentChunk ? '\n\n' : '') + chunk;
+           } else {
+              if (currentChunk) chunks.push(currentChunk);
+              currentChunk = chunk;
+           }
+        }
+        continue;
+      }
+
+      // 진짜 표인 경우
+      const wholeTable = block.content.join('\n');
+      
+      // 1. 현재 청크에 통째로 들어가는지 확인
+      if (currentChunk.length + wholeTable.length + 2 <= maxChunkSize) {
+        currentChunk += (currentChunk ? '\n\n' : '') + wholeTable;
+        continue;
+      }
+
+      // 2. 들어가지 않으면 현재 청크 마감
+      if (currentChunk) {
+        chunks.push(currentChunk);
+        currentChunk = '';
+      }
+
+      // 3. 새 청크에 통째로 들어가는지 확인
+      if (wholeTable.length <= maxChunkSize) {
+        currentChunk = wholeTable;
+        continue;
+      }
+
+      // 4. 표가 너무 크면 행 단위로 분할 (헤더 반복)
+      const tableHeader = header + '\n' + separator;
+      const rows = block.content.slice(2);
+      
+      let tempTableChunk = tableHeader;
+
+      for (const row of rows) {
+        if (tempTableChunk.length + row.length + 1 <= maxChunkSize) {
+          tempTableChunk += '\n' + row;
+        } else {
+          // 꽉 차면 청크 저장
+          chunks.push(tempTableChunk);
+          // 새 청크 시작 (헤더 반복 + (continued) 표시)
+          // (continued) 표시는 선택사항이지만 문맥 파악에 도움됨
+          // 단, 마크다운 표 문법상 헤더 바로 뒤에 행이 와야 하므로 텍스트로 넣거나, 그냥 헤더만 반복
+          tempTableChunk = tableHeader + '\n' + row; 
+        }
+      }
+      
+      // 남은 부분 처리
+      if (tempTableChunk) {
+        currentChunk = tempTableChunk;
+      }
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
