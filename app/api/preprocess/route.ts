@@ -10,9 +10,10 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     // 텍스트 데이터 추출
-    const { text, docType } = body as {
+    const { text, docType, separator } = body as {
       text?: string;
       docType?: DocType;
+      separator?: string;
     };
     
     // 입력 검증
@@ -35,8 +36,11 @@ export async function POST(request: NextRequest) {
         ? docType
         : 'other';
     
+    // 구분자 기본값 설정
+    const effectiveSeparator = separator || '@@@';
+    
     // 전처리 실행
-    const result = preprocessByDocType(text, effectiveDocType);
+    const result = preprocessByDocType(text, effectiveDocType, effectiveSeparator);
     
     // 결과 반환
     return NextResponse.json({

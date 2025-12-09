@@ -15,7 +15,6 @@ import { Input } from '@/components/ui/input';
 import { 
   Search, 
   X,
-  FileText,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -77,7 +76,6 @@ export function ChunkViewerModal({ isOpen, onClose, chunks }: ChunkViewerModalPr
         {/* 헤더 */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <div className="flex items-center gap-3">
-            <FileText className="h-5 w-5 text-primary" />
             <DialogTitle className="text-xl font-bold">청크 보기</DialogTitle>
             <Badge variant="secondary" className="bg-primary/10 text-primary font-semibold px-3">
               총 {chunks.length}개

@@ -27,7 +27,7 @@ export function ChunkFlowViewer({ chunks }: ChunkFlowViewerProps) {
   ];
 
   return (
-    <ScrollArea className="h-full w-full rounded-md border bg-background">
+    <ScrollArea className="h-full w-full">
       <div className="p-4 flex flex-col leading-relaxed text-sm">
         {chunks.map((chunk, index) => {
           const colorClass = chunkColors[index % chunkColors.length];
@@ -35,12 +35,12 @@ export function ChunkFlowViewer({ chunks }: ChunkFlowViewerProps) {
           return (
             <div 
               key={index} 
-              className={`relative group px-4 py-2 border-b last:border-0 ${colorClass} transition-all hover:brightness-95`}
+              className={`relative group px-4 pt-8 pb-4 border-b last:border-0 ${colorClass} transition-all hover:brightness-95`}
             >
-              {/* 호버 시 뱃지 표시 */}
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
-                <Badge variant="outline" className="text-[10px] h-4 px-1 bg-background shadow-sm whitespace-nowrap">
-                  #{index + 1}
+              {/* 청크 번호 항상 표시 (왼쪽 상단) */}
+              <div className="absolute top-2 left-2 z-10 pointer-events-none">
+                <Badge variant="secondary" className="text-xs font-semibold px-2 py-0.5 bg-background/80 backdrop-blur-sm shadow-sm">
+                  Chunk #{index + 1}
                 </Badge>
               </div>
               

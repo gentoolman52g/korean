@@ -433,7 +433,7 @@ function parseCSV(text: string): string[][] {
  * - CSV 파싱 후 마크다운 표로 변환
  * - 청크 분할 시 헤더를 자동으로 포함하여 문맥 유지
  */
-function preprocessExcel(text: string): PreprocessResult {
+function preprocessExcel(text: string, separator: string = '@@@'): PreprocessResult {
   // 1. 시트 분리
   const sheetRegex = /\[Sheet: (.*?)\]/g;
   const parts = text.split(sheetRegex);
@@ -511,7 +511,7 @@ function preprocessExcel(text: string): PreprocessResult {
     chunks.push(currentChunk);
   }
   
-  const processedText = chunks.join('\n\n@@@\n\n');
+  const processedText = chunks.join(`\n\n${separator}\n\n`);
 
   return {
     processedText,
@@ -527,14 +527,14 @@ function preprocessExcel(text: string): PreprocessResult {
 /**
  * 전체 전처리 파이프라인 실행 (일반 문서용)
  */
-export function preprocessText(text: string): PreprocessResult {
+export function preprocessText(text: string, separator: string = '@@@'): PreprocessResult {
   const { originalLength, processed } = basePreprocess(text);
 
   // 5. 청킹 (일반 문서: 문단/문장 기반)
   const chunks = chunkText(processed);
 
-  // 청크를 '@@@' 구분자로 연결
-  const processedText = chunks.join('\n\n@@@\n\n');
+  // 청크를 구분자로 연결
+  const processedText = chunks.join(`\n\n${separator}\n\n`);
 
   return {
     processedText,
@@ -553,12 +553,13 @@ export function preprocessText(text: string): PreprocessResult {
 export function preprocessByDocType(
   text: string,
   docType: DocType,
+  separator: string = '@@@'
 ): PreprocessResult {
   switch (docType) {
     case 'law': {
       const { originalLength, processed } = basePreprocess(text);
       const chunks = chunkLawStructure(processed);
-      const processedText = chunks.join('\n\n@@@\n\n');
+      const processedText = chunks.join(`\n\n${separator}\n\n`);
 
       return {
         processedText,
@@ -575,7 +576,7 @@ export function preprocessByDocType(
       const { originalLength, processed } = basePreprocess(text);
       // chunkResearchPaper 내부에서 removePageHeaders 호출함
       const chunks = chunkResearchPaper(processed); 
-      const processedText = chunks.join('\n\n@@@\n\n');
+      const processedText = chunks.join(`\n\n${separator}\n\n`);
 
       return {
         processedText,
@@ -589,14 +590,14 @@ export function preprocessByDocType(
     }
     case 'excel': {
       // 엑셀 파일: 헤더 보존 및 행 단위 청킹
-      return preprocessExcel(text);
+      return preprocessExcel(text, separator);
     }
     case 'other':
     default: {
       const { originalLength, processed } = basePreprocess(text);
       // 마크다운 표를 인식하여 깨지지 않도록 청킹
       const chunks = chunkMarkdownWithTables(processed);
-      const processedText = chunks.join('\n\n@@@\n\n');
+      const processedText = chunks.join(`\n\n${separator}\n\n`);
 
       return {
         processedText,

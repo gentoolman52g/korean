@@ -15,6 +15,7 @@ export interface UseFileProcessorReturn {
   processedText: string;
   processedChunks: string[];
   docType: DocType;
+  separator: string;
   stats: ProcessStats | null;
   error: string | null;
   status: 'idle' | 'reading' | 'uploading' | 'processing' | 'complete' | 'error';
@@ -23,6 +24,7 @@ export interface UseFileProcessorReturn {
   setFile: (file: File | null) => void;
   setInputText: (text: string) => void;
   setDocType: (type: DocType) => void;
+  setSeparator: (separator: string) => void;
   setProcessedText: (text: string) => void;
   reset: () => void;
   
@@ -39,6 +41,7 @@ export function useFileProcessor(): UseFileProcessorReturn {
   const [processedChunks, setProcessedChunks] = useState<string[]>([]);
   const [stats, setStats] = useState<ProcessStats | null>(null);
   const [docType, setDocType] = useState<DocType>('law');
+  const [separator, setSeparator] = useState<string>('@@@');
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'reading' | 'uploading' | 'processing' | 'complete' | 'error'>('idle');
 
@@ -175,6 +178,7 @@ export function useFileProcessor(): UseFileProcessorReturn {
         body: JSON.stringify({
           text: inputText,
           docType,
+          separator,
         }),
       });
 
@@ -189,7 +193,7 @@ export function useFileProcessor(): UseFileProcessorReturn {
       setError(err instanceof Error ? err.message : '전처리 중 오류가 발생했습니다.');
       setStatus('error');
     }
-  }, [inputText, docType]);
+  }, [inputText, docType, separator]);
 
   return {
     file,
@@ -197,12 +201,14 @@ export function useFileProcessor(): UseFileProcessorReturn {
     processedText,
     processedChunks,
     docType,
+    separator,
     stats,
     error,
     status,
     setFile,
     setInputText,
     setDocType,
+    setSeparator,
     setProcessedText,
     reset,
     handleFileRead,
