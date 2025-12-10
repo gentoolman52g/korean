@@ -26,6 +26,7 @@ export interface UseFileProcessorReturn {
   setDocType: (type: DocType) => void;
   setSeparator: (separator: string) => void;
   setProcessedText: (text: string) => void;
+  updateChunks: (chunks: string[]) => void;
   reset: () => void;
   
   // Async Actions
@@ -195,6 +196,23 @@ export function useFileProcessor(): UseFileProcessorReturn {
     }
   }, [inputText, docType, separator]);
 
+  // 청크 수동 업데이트
+  const updateChunks = useCallback((newChunks: string[]) => {
+    setProcessedChunks(newChunks);
+    // 구분자 앞뒤로 줄바꿈을 추가하여 독립적인 줄에 위치하도록 함
+    const newProcessedText = newChunks.join(`\n\n${separator}\n\n`);
+    setProcessedText(newProcessedText);
+    
+    // 통계 업데이트
+    if (stats) {
+      setStats({
+        ...stats,
+        processedLength: newProcessedText.length,
+        chunkCount: newChunks.length
+      });
+    }
+  }, [separator, stats]);
+
   return {
     file,
     inputText,
@@ -210,6 +228,7 @@ export function useFileProcessor(): UseFileProcessorReturn {
     setDocType,
     setSeparator,
     setProcessedText,
+    updateChunks,
     reset,
     handleFileRead,
     processText,

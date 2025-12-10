@@ -106,6 +106,7 @@ export default function Home() {
     setDocType,
     setSeparator,
     setProcessedText,
+    updateChunks,
     reset,
     handleFileRead,
     processText,
@@ -400,7 +401,6 @@ export default function Home() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-3">
-                  <Label htmlFor="file" className="text-base font-medium">파일 선택</Label>
                   <Input
                     key={inputKey}
                     id="file"
@@ -416,9 +416,9 @@ export default function Home() {
                   />
                   {file && (
                     <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-4 py-3 rounded-md">
-                      <div className="flex-1">
+                      <div className="flex-1 flex items-center gap-2">
                         <p className="font-medium text-foreground">{file.name}</p>
-                        <p className="text-xs mt-0.5">{(file.size / 1024).toFixed(2)} KB</p>
+                        <p className="text-xs text-muted-foreground">{(file.size / 1024).toFixed(2)} KB</p>
                       </div>
                     </div>
                   )}
@@ -755,11 +755,17 @@ export default function Home() {
                     ) : (
                       <Button
                         onClick={() => {
-                          setProcessedText(editingText);
+                          // 텍스트 편집 후 저장 시 청크 데이터도 함께 업데이트
+                          // 구분자를 기준으로 나누되, 구분자 주변의 공백(줄바꿈 포함)을 제거하여 깔끔한 청크 생성
+                          const escapedSeparator = separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                          const newChunks = editingText.split(new RegExp(`\\s*${escapedSeparator}\\s*`));
+                          
+                          updateChunks(newChunks); // 이 함수가 processedText도 함께 업데이트함 (join으로)
+                          
                           setIsEditMode(false);
                           setShowChunkFlow(true);
                           toast.success('저장 완료', {
-                            description: '수정 내용이 저장되었습니다.',
+                            description: '수정 내용이 저장되고 청크가 재구성되었습니다.',
                           });
                         }}
                         disabled={!editingText.trim()}
@@ -773,7 +779,7 @@ export default function Home() {
               <CardContent className="space-y-4">
                 {!isEditMode && showChunkFlow && isVisualizationReady ? (
                   <div className="h-[600px] rounded-lg border overflow-hidden">
-                    <ChunkFlowViewer chunks={processedChunks} />
+                    <ChunkFlowViewer chunks={processedChunks} onChunkUpdate={updateChunks} />
                   </div>
                 ) : (
                   <Textarea
